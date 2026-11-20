@@ -28,11 +28,42 @@
 const API='https://aides-territoires.beta.gouv.fr/api/aids/?page=1';
 let aids=[],filter='all';
 const grid=document.getElementById('aidGrid'),status=document.getElementById('apiStatus');
-function esc(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function plain(s=''){return String(s).replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();}
-function fields(a){return [a.name,a.description,a.subvention_rate,a.perimeter,a.aid_types,a.categories,a.backers?.map(x=>x.name).join(' ')].flat().filter(Boolean).join(' ').toLowerCase();}
-function render(){const q=document.getElementById('q').value.toLowerCase().trim();const list=aids.filter(a=>(filter==='all'||fields(a).includes(filter))&&(!q||fields(a).includes(q)));grid.innerHTML=list.slice(0,18).map(a=>{const desc=plain(a.description||a.short_description||'Consultez la fiche officielle pour connaître les conditions de ce dispositif.');const owner=Array.isArray(a.backers)?a.backers.map(x=>x.name).filter(Boolean).join(', '):'';const url=a.url?(a.url.startsWith('http')?a.url:'https://aides-territoires.beta.gouv.fr'+a.url):'https://aides-territoires.beta.gouv.fr/';return '<article class="card"><div class="tag">'+esc((a.aid_types||a.categories?.[0]?.name||'Dispositif d’aide').toString().slice(0,70))+'</div><h3>'+esc(a.name||'Aide publique')+'</h3><p>'+esc(desc.slice(0,230))+(desc.length>230?'…':'')+'</p><div class="meta"><span>'+esc(owner.slice(0,90)||'Financeur à consulter')+'</span><a class="textlink" href="'+esc(url)+'" target="_blank" rel="noopener">Voir la fiche ↗</a></div></article>';}).join('')||'<div class="empty">Aucun résultat dans les données actuellement chargées. Essayez un autre terme ou consultez la base officielle.</div>';}
-async function load(){try{const r=await fetch(API,{headers:{Accept:'application/json'}});if(!r.ok)throw new Error('HTTP '+r.status);const data=await r.json();aids=Array.isArray(data)?data:(data.results||[]);status.textContent=aids.length+' dispositif(s) récupéré(s) depuis Aides-territoires.';render();}catch(e){status.textContent='La connexion directe à l’API est indisponible dans ce navigateur. Vous pouvez consulter la base officielle.';grid.innerHTML='<div class="empty">Impossible de charger les aides automatiquement pour le moment.<br><a href="https://aides-territoires.beta.gouv.fr/" target="_blank" rel="noopener">Rechercher directement sur Aides-territoires ↗</a><br><small>La connexion API pourra être fiabilisée avec un service intermédiaire si nécessaire.</small></div>';}}
+function esc(s=''){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function plain(s=''){return String(s??'').replace(/<[^>]*>/g,' ').replace(/\\s+/g,' ').trim();}
+function names(v){if(!Array.isArray(v))return v||'';return v.map(x=>typeof x==='string'?x:(x?.name||x?.label||'')).filter(Boolean).join(', ');}
+function fields(a){return [a.name,a.description,a.eligibility,a.perimeter,a.aid_types,a.tags,a.targeted_audiences,a.backers,a.categories,a.mobilization_steps].map(names).join(' ').toLowerCase();}
+function render(){
+ const q=document.getElementById('q').value.toLowerCase().trim();
+ const list=aids.filter(a=>(filter==='all'||fields(a).includes(filter))&&(!q||fields(a).includes(q)));
+ grid.innerHTML=list.slice(0,30).map(a=>{
+  const desc=plain(a.description||a.eligibility||'Consultez la fiche officielle pour connaître les conditions de ce dispositif.');
+  const owner=names(a.backers)||'Financeur à consulter';
+  const types=names(a.aid_types)||names(a.tags)||'Dispositif d’aide';
+  const path=a.url||'';
+  const url=path?(path.startsWith('http')?path:'https://aides-territoires.beta.gouv.fr'+(path.startsWith('/')?path:'/'+path)):'https://aides-territoires.beta.gouv.fr/';
+  return '<article class="card"><div class="tag">'+esc(types.slice(0,70))+'</div><h3>'+esc(a.name||'Aide publique')+'</h3><p>'+esc(desc.slice(0,230))+(desc.length>230?'…':'')+'</p><div class="meta"><span>'+esc(owner.slice(0,90))+'</span><a class="textlink" href="'+esc(url)+'" target="_blank" rel="noopener">Voir la fiche ↗</a></div></article>';
+ }).join('')||'<div class="empty">Aucun résultat. Essayez un autre terme ou consultez la base officielle.</div>';
+}
+async function load(){
+ try{
+  const r=await fetch('./data/aids.json',{cache:'no-store'});
+  if(!r.ok)throw new Error('Données synchronisées non disponibles');
+  const data=await r.json();
+  aids=Array.isArray(data)?data:(data.results||[]);
+  status.textContent=aids.length+' dispositif(s) synchronisé(s) depuis Aides-territoires.';
+  render();
+ }catch(e){
+  status.textContent='Les données synchronisées ne sont pas encore publiées. Tentative de connexion directe…';
+  try{
+   let url=API,all=[];
+   for(let i=0;i<10&&url;i++){const r=await fetch(url,{headers:{Accept:'application/json'}});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();all=all.concat(d.results||[]);url=d.next||null;}
+   aids=all;status.textContent=aids.length+' dispositif(s) récupéré(s) directement depuis Aides-territoires.';render();
+  }catch(err){
+   status.textContent='Connexion indisponible pour le moment. Consultez la base officielle.';
+   grid.innerHTML='<div class="empty">Les données seront disponibles après la première synchronisation automatique.<br><a href="https://aides-territoires.beta.gouv.fr/" target="_blank" rel="noopener">Ouvrir Aides-territoires ↗</a></div>';
+  }
+ }
+}
 document.getElementById('searchForm').addEventListener('submit',e=>{e.preventDefault();render();document.getElementById('aides').scrollIntoView({behavior:'smooth'});});
 document.getElementById('q').addEventListener('input',render);
 document.getElementById('filters').addEventListener('click',e=>{const b=e.target.closest('button[data-filter]');if(!b)return;filter=b.dataset.filter;document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('active',x===b));render();});
